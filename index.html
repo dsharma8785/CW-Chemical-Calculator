@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CW Chemical Dosing Calculator — NTPC Solapur</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#101a1f;
+    --panel:#16232a;
+    --panel-2:#1c2b33;
+    --line:#2b3d46;
+    --text:#e7eef0;
+    --muted:#8ea3ab;
+    --teal:#3fb6ad;
+    --teal-dim:#264a47;
+    --amber:#e0a83e;
+    --amber-dim:#4a3a1c;
+    --red:#e2685f;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px;}
+
+  header{margin-bottom:22px;}
+  header .tag{color:var(--teal);font-size:12.5px;letter-spacing:.02em;margin-bottom:6px;}
+  header h1{font-size:22px;font-weight:600;margin:0 0 6px;line-height:1.3;}
+  header p{color:var(--muted);font-size:13.5px;margin:0;max-width:680px;line-height:1.5;}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:760px){.grid{grid-template-columns:1fr;}}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:18px 18px 14px;
+    margin-bottom:16px;
+  }
+  .panel h2{
+    font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted);margin:0 0 14px;font-weight:600;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);}
+
+  .field{margin-bottom:11px;}
+  .field label{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12.5px;color:var(--muted);margin-bottom:4px;
+  }
+  .field label .unit{color:#5f747c;font-size:11px;}
+  .field input, .field select{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--text);border-radius:2px;padding:8px 10px;font-size:14px;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .field input:focus, .field select:focus{outline:none;border-color:var(--teal);}
+  .field.flagged input, .field.flagged select{border-color:var(--amber);background:#241d10;}
+  .field.flagged label{color:var(--amber);}
+  .flag-note{font-size:11px;color:var(--amber);margin-top:3px;line-height:1.4;}
+  .field-note{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4;}
+
+  details.subgroup{margin-top:6px;border-top:1px solid var(--line);padding-top:10px;}
+  details.subgroup summary{cursor:pointer;font-size:12px;color:var(--muted);list-style:none;}
+  details.subgroup summary::-webkit-details-marker{display:none;}
+  details.subgroup summary:before{content:'▸ ';color:var(--teal);}
+  details.subgroup[open] summary:before{content:'▾ ';}
+  details.subgroup .field{margin-top:10px;}
+
+  .regime-panel{
+    background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border:1px solid var(--teal);border-radius:3px;padding:20px;margin-bottom:16px;
+  }
+  .regime-panel .slabel{font-size:12px;color:var(--teal);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+  .regime-panel .sroute{font-size:19px;font-weight:600;margin-bottom:6px;}
+  .regime-panel .savail{font-size:12.5px;color:var(--muted);margin-bottom:14px;}
+  .regime-panel .savail b{color:var(--text);}
+
+  .blend-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .blend-table th{
+    text-align:left;color:var(--muted);font-weight:500;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line);
+  }
+  .blend-table td{padding:8px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
+  .blend-table td:first-child{font-family:'IBM Plex Sans',sans-serif;}
+  .blend-table tr:last-child td{border-bottom:none;font-weight:600;color:var(--teal);}
+
+  .note-line{margin-top:12px;font-size:12.5px;color:var(--muted);line-height:1.5;}
+  .note-line b{color:var(--amber);}
+
+  .checks{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .check{
+    font-size:11.5px;padding:5px 10px;border-radius:2px;border:1px solid var(--line);
+    color:var(--muted);font-family:'IBM Plex Mono',monospace;
+  }
+  .check.ok{border-color:#2f4a3a;color:#7fd1a3;}
+  .check.warn{border-color:var(--red);color:var(--red);}
+
+  .readme{font-size:12.5px;color:var(--muted);line-height:1.6;}
+  .readme li{margin-bottom:6px;}
+  .amber-text{color:var(--amber);}
+
+  footer{margin-top:20px;font-size:11.5px;color:#5f747c;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="tag mono">NTPC SOLAPUR · 2×660 MW · CW CHEMICAL DOSING</div>
+    <h1>Daily Chemical Dosing Calculator — driven by ClO₂ generator availability</h1>
+    <p>ClO₂ (via NaClO₂+HCl) is the preferred biocide for efficacy. NaOCl only fills whatever gap ClO₂ generation can't cover today — cost is reported, never used to substitute cheaper NaOCl for ClO₂. Everything below recalculates live.</p>
+  </header>
+
+  <div class="grid">
+    <div class="panel">
+      <h2><span class="dot"></span>Daily Input — fill this every day</h2>
+
+      <div class="field"><label>Make-up water flow <span class="unit">m³/day</span></label>
+        <input type="number" id="mu_flow" value="4000"></div>
+      <div class="field"><label>Blowdown flow <span class="unit">m³/day</span></label>
+        <input type="number" id="bd_flow" value="800"></div>
+      <div class="field"><label>Make-up water pH</label>
+        <input type="number" step="0.1" id="mu_ph" value="7.5"></div>
+      <div class="field"><label>Current CW / OAC pH</label>
+        <input type="number" step="0.1" id="cw_ph" value="7.9"></div>
+      <div class="field"><label>CW M-Alkalinity, measured (lab) <span class="unit">ppm CaCO₃</span></label>
+        <input type="number" id="m_alk" value="380"></div>
+      <div class="field"><label>CW P-Alkalinity, measured (lab) <span class="unit">ppm CaCO₃ — logged only</span></label>
+        <input type="number" id="p_alk" value="0"></div>
+      <div class="field"><label>Free residual chlorine, measured <span class="unit">ppm</span></label>
+        <input type="number" step="0.01" id="free_cl2_meas" value="0.40"></div>
+      <div class="field"><label>ClO₂ residual, measured <span class="unit">ppm</span></label>
+        <input type="number" step="0.01" id="clo2_meas" value="0.15"></div>
+      <div class="field"><label>ORP, measured <span class="unit">mV — logged only</span></label>
+        <input type="number" id="orp" value="420"></div>
+      <div class="field flagged"><label>ClO₂ generator availability today <span class="unit">%</span></label>
+        <input type="number" step="1" id="clo2_avail" value="100">
+        <div class="flag-note">Mechanical/health/stock-driven capability — a REPORTED FACT, not something the model optimizes for cost. Drives the whole ClO₂/NaOCl split.</div></div>
+      <div class="field"><label>NaClO₂ price today <span class="unit">₹/MT</span></label>
+        <input type="number" id="price_naclo2" value="77000"></div>
+      <div class="field"><label>HCl price today <span class="unit">₹/MT</span></label>
+        <input type="number" id="price_hcl" value="12000"></div>
+      <div class="field"><label>NaOCl price today <span class="unit">₹/MT</span></label>
+        <input type="number" id="price_naocl" value="8000"></div>
+      <div class="field"><label>H₂SO₄ price today <span class="unit">₹/MT</span></label>
+        <input type="number" id="price_h2so4" value="38325"></div>
+
+      <div class="field flagged"><label>Chemical in short supply today</label>
+        <select id="scarce_chem">
+          <option value="None">None</option>
+          <option value="NaClO2">NaClO2</option>
+          <option value="HCl">HCl</option>
+          <option value="NaOCl">NaOCl</option>
+          <option value="H2SO4">H2SO4</option>
+        </select>
+        <div class="flag-note">NaClO2/HCl scarce auto-throttles ClO₂ production down to last until next supply. NaOCl/H2SO4 scarce needs no override — more ClO₂ already conserves them.</div></div>
+      <div class="field"><label>NaClO₂ current stock <span class="unit">kg</span></label>
+        <input type="number" id="stock_naclo2" value="2000"></div>
+      <div class="field"><label>NaClO₂ days to next supply</label>
+        <input type="number" id="days_naclo2" value="15"></div>
+      <div class="field"><label>HCl current stock <span class="unit">kg</span></label>
+        <input type="number" id="stock_hcl" value="1500"></div>
+      <div class="field"><label>HCl days to next supply</label>
+        <input type="number" id="days_hcl" value="15"></div>
+      <div class="field"><label>NaOCl current stock <span class="unit">kg</span></label>
+        <input type="number" id="stock_naocl" value="5000"></div>
+      <div class="field"><label>NaOCl days to next supply</label>
+        <input type="number" id="days_naocl" value="10"></div>
+      <div class="field"><label>H₂SO₄ current stock <span class="unit">kg</span></label>
+        <input type="number" id="stock_h2so4" value="3000"></div>
+      <div class="field"><label>H₂SO₄ days to next supply</label>
+        <input type="number" id="days_h2so4" value="20"></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot" style="background:var(--muted)"></span>Config — plant &amp; chemistry constants</h2>
+
+      <div class="field"><label>ClO₂ generator efficiency (measured) <span class="unit">%</span></label>
+        <input type="number" step="1" id="eff_clo2" value="80"></div>
+      <div class="field"><label>Target CW pH — lower bound</label>
+        <input type="number" step="0.1" id="ph_lower" value="7.8"></div>
+      <div class="field"><label>Target CW pH — upper bound</label>
+        <input type="number" step="0.1" id="ph_upper" value="8.0"></div>
+      <div class="field"><label>CW hold-up volume <span class="unit">m³</span></label>
+        <input type="number" id="holdup_vol" value="50000"></div>
+      <div class="field"><label>Doses per day (shifts)</label>
+        <input type="number" id="doses_per_day" value="3"></div>
+
+      <details class="subgroup">
+        <summary>More constants (rarely change)</summary>
+        <div class="field"><label>NaClO₂ commercial strength <span class="unit">%</span></label>
+          <input type="number" step="1" id="naclo2_strength" value="31"></div>
+        <div class="field"><label>HCl commercial strength <span class="unit">%</span></label>
+          <input type="number" step="1" id="hcl_strength" value="30"></div>
+        <div class="field"><label>NaOCl available Cl₂ % <span class="unit">%</span></label>
+          <input type="number" step="0.1" id="naocl_strength" value="12.5"></div>
+        <div class="field"><label>H₂SO₄ commercial strength <span class="unit">%</span></label>
+          <input type="number" step="1" id="h2so4_strength" value="98"></div>
+        <div class="field"><label>NaClO₂:ClO₂ ratio, HCl-basis @90% eff <span class="unit">kg/kg</span></label>
+          <input type="number" step="0.01" id="ratio_naclo2" value="6.02"></div>
+        <div class="field"><label>NaClO₂:HCl ratio, HCl-basis @90% eff <span class="unit">kg/kg</span></label>
+          <input type="number" step="0.01" id="ratio_hcl" value="6.0"></div>
+        <div class="field"><label>ClO₂ shock-dose concentration <span class="unit">ppm</span></label>
+          <input type="number" step="0.01" id="clo2_dose_conc" value="0.5"></div>
+        <div class="field flagged"><label>NaOCl shock-dose concentration <span class="unit">ppm</span></label>
+          <input type="number" step="0.01" id="naocl_dose_conc" value="0.5">
+          <div class="flag-note">PLACEHOLDER — assumed equal to NETRA's residual target; the actual full-NaOCl-alone dose concentration has no documented source yet.</div></div>
+        <div class="field"><label>NaOCl density <span class="unit">kg/L</span></label>
+          <input type="number" step="0.01" id="naocl_density" value="1.20"></div>
+        <div class="field"><label>NaOCl free NaOH <span class="unit">g/L</span></label>
+          <input type="number" step="0.1" id="naocl_naoh" value="5.0"></div>
+        <div class="field"><label>NaOCl free Na₂CO₃ <span class="unit">g/L</span></label>
+          <input type="number" step="0.1" id="naocl_na2co3" value="0.5"></div>
+        <div class="field"><label>Make-up baseline alkalinity <span class="unit">ppm CaCO₃ — reference only</span></label>
+          <input type="number" id="mu_alk" value="149"></div>
+        <div class="field"><label>Make-up baseline pH <span class="unit">anchor point</span></label>
+          <input type="number" step="0.1" id="mu_ph_anchor" value="7.5"></div>
+        <div class="field flagged"><label>CW alkalinity anchor, no-acid @ COC5 <span class="unit">ppm CaCO₃</span></label>
+          <input type="number" id="cw_alk_anchor" value="745">
+          <div class="flag-note">PLACEHOLDER — NETRA Table 3 single COC5 prediction, not a live titration curve.</div></div>
+        <div class="field"><label>CW pH anchor, no-acid @ COC5</label>
+          <input type="number" step="0.01" id="cw_ph_anchor" value="9.71"></div>
+        <div class="field"><label>H₂SO₄ base-formula coefficient</label>
+          <input type="number" step="0.001" id="h2so4_coef" value="0.026"></div>
+        <div class="field"><label>ClO₂ generator capacity, combined <span class="unit">kg/hr</span></label>
+          <input type="number" id="gen_capacity" value="150"></div>
+        <div class="field flagged"><label>Shock-dose event duration <span class="unit">hr — for capacity check</span></label>
+          <input type="number" step="0.1" id="dose_duration" value="1.0">
+          <div class="flag-note">PLACEHOLDER — assumed time to deliver one shock dose.</div></div>
+      </details>
+    </div>
+  </div>
+
+  <div class="regime-panel">
+    <div class="slabel mono">Today's regime</div>
+    <div class="sroute" id="regime_label">—</div>
+    <div class="savail" id="avail_line"></div>
+    <table class="blend-table">
+      <thead><tr><th>Chemical</th><th>kg/day</th><th>L/day (approx)</th><th>Cost ₹/day</th></tr></thead>
+      <tbody id="blend_body"></tbody>
+    </table>
+    <div class="note-line" id="window_line"></div>
+    <div class="note-line">Cost is a reported consequence of today's availability%, not a decision input — the model never substitutes cheaper NaOCl for ClO₂ to save money.</div>
+    <div class="checks" id="checks"></div>
+  </div>
+
+  <div class="panel">
+    <h2><span class="dot" style="background:var(--amber)"></span>Inventory &amp; supply feasibility</h2>
+    <table class="blend-table">
+      <thead><tr><th>Chemical</th><th>Days to stockout</th><th>Feasible until next supply?</th></tr></thead>
+      <tbody id="feasibility_body"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2><span class="dot" style="background:var(--muted)"></span>Notes on this model</h2>
+    <ul class="readme">
+      <li>ClO₂ (NaClO₂ + HCl) is the preferred biocide for efficacy — cost never overrides that preference. NaOCl is dosed standalone only to cover whatever fraction of biocide duty today's ClO₂ generator availability can't reach.</li>
+      <li>NaClO₂/HCl flagged short-supply auto-throttles effective availability down to whatever level makes that chemical's stock last <b>exactly until the next delivery</b> — using as much ClO₂ as sustainably possible, not less. NaOCl/H₂SO₄ flagged short-supply needs no override, since running ClO₂ at its full mechanical availability already minimizes NaOCl use.</li>
+      <li class="amber-text">Flagged fields (amber) are placeholder assumptions pending real site/trial data.</li>
+      <li>H₂SO₄ = base (blowdown-driven, gated on today's CW pH — zero whenever pH is within/below the 7.8–8.0 band) + a causticity offset that scales with however much NaOCl is actually dosed today. Zero NaOCl (100% availability) → zero causticity offset.</li>
+      <li>ORP and CW P-alkalinity are logged for reference/trending only.</li>
+    </ul>
+  </div>
+
+  <footer class="mono">Sources: NETRA/CORR/SOLAPUR/CWT/2024 · ClO₂ Plant Tech Specs (Solapur) · Vasu Chemicals ClO₂ Generation SOP · NaOCl COA (IS 11673 Part-1:2019, Grade II) · site-provided prices &amp; measurements.</footer>
+
+</div>
+
+<script>
+function num(id){ return parseFloat(document.getElementById(id).value) || 0; }
+function fmt(n, d=0){ return n.toLocaleString('en-IN', {maximumFractionDigits:d, minimumFractionDigits:d}); }
+
+function recalc(){
+  // Daily input
+  const mu_flow = num('mu_flow'), bd_flow = num('bd_flow');
+  const bd_hr = bd_flow/24;
+  const cw_ph = num('cw_ph');
+  const m_alk = num('m_alk'), p_alk = num('p_alk');
+  const orp = num('orp');
+  const clo2_avail_input = num('clo2_avail');
+  const price_naclo2 = num('price_naclo2'), price_hcl = num('price_hcl');
+  const price_naocl = num('price_naocl'), price_h2so4 = num('price_h2so4');
+
+  // Config
+  const eff = num('eff_clo2')/100;
+  const ph_lower = num('ph_lower'), ph_upper = num('ph_upper');
+  const holdup_vol = num('holdup_vol'), doses_per_day = num('doses_per_day');
+  const naclo2_strength = num('naclo2_strength')/100;
+  const hcl_strength = num('hcl_strength')/100;
+  const naocl_strength = num('naocl_strength')/100;
+  const h2so4_strength = num('h2so4_strength')/100;
+  const ratio_naclo2 = num('ratio_naclo2'), ratio_hcl = num('ratio_hcl');
+  const clo2_dose_conc = num('clo2_dose_conc'), naocl_dose_conc = num('naocl_dose_conc');
+  const naocl_density = num('naocl_density');
+  const naocl_naoh = num('naocl_naoh'), naocl_na2co3 = num('naocl_na2co3');
+  const mu_alk = num('mu_alk'), mu_ph_anchor = num('mu_ph_anchor');
+  const cw_alk_anchor = num('cw_alk_anchor'), cw_ph_anchor = num('cw_ph_anchor');
+  const h2so4_coef = num('h2so4_coef');
+  const gen_capacity = num('gen_capacity'), dose_duration = num('dose_duration');
+
+  const coc = bd_flow>0 ? mu_flow/bd_flow : 0;
+
+  // pH-gated H2SO4 base (unchanged mechanism from before)
+  const slope = (cw_ph_anchor - mu_ph_anchor) !== 0 ? (cw_alk_anchor - mu_alk) / (cw_ph_anchor - mu_ph_anchor) : 0;
+  const target_alk_at_upper = mu_alk + slope * (ph_upper - mu_ph_anchor);
+  const alk_gap_measured = Math.max(m_alk - target_alk_at_upper, 0);
+  const alk_gap_ph = slope * Math.max(cw_ph - ph_upper, 0);
+  const alk_gap = Math.max(alk_gap_measured, alk_gap_ph);
+  const acidNeeded = cw_ph > ph_upper;
+  const h2so4_base = acidNeeded ? h2so4_coef*alk_gap*bd_hr : 0;
+
+  function causticity(naocl_kg){
+    const vol = naocl_kg/naocl_density;
+    const naoh = vol*naocl_naoh/1000;
+    const na2co3 = vol*naocl_na2co3/1000;
+    const alk_add = naoh*1.25 + na2co3*0.943;
+    return alk_add*0.98;
+  }
+
+  // Full targets at the two extremes
+  const full_clo2 = holdup_vol * clo2_dose_conc / 1000 * doses_per_day;   // Regime A full target
+  const full_naocl = holdup_vol * naocl_dose_conc / 1000 * doses_per_day; // Regime C full target
+
+  // NaClO2/HCl needed per day AT 100% availability (reference figures)
+  const naclo2_100 = eff>0 ? full_clo2*ratio_naclo2*(0.9/eff) : 0;
+  const hcl_100 = eff>0 ? full_clo2*ratio_hcl*(0.9/eff) : 0;
+
+  const scarce = document.getElementById('scarce_chem').value;
+  const stock_naclo2 = num('stock_naclo2'), days_naclo2 = num('days_naclo2');
+  const stock_hcl = num('stock_hcl'), days_hcl = num('days_hcl');
+  const stock_naocl = num('stock_naocl'), days_naocl = num('days_naocl');
+  const stock_h2so4 = num('stock_h2so4'), days_h2so4 = num('days_h2so4');
+
+  // Projected TOTAL consumption until next delivery, at 100% availability
+  const naclo2_window_need = naclo2_100 * days_naclo2;
+  const hcl_window_need = hcl_100 * days_hcl;
+
+  // Auto-throttle: use as much ClO2 as sustainably possible without stocking out NaClO2/HCl
+  // before the next delivery. Does NOT go lower purely to save money.
+  const avail_mech = clo2_avail_input/100;
+  const avail_cap_naclo2 = (scarce === 'NaClO2') ? Math.min(1, stock_naclo2/Math.max(naclo2_window_need,0.001)) : 1;
+  const avail_cap_hcl = (scarce === 'HCl') ? Math.min(1, stock_hcl/Math.max(hcl_window_need,0.001)) : 1;
+  const avail_eff = Math.min(avail_mech, avail_cap_naclo2, avail_cap_hcl);
+
+  // Regime label
+  let regimeLabel;
+  if (avail_eff >= 0.999) regimeLabel = 'Regime A — ClO2 only';
+  else if (avail_eff <= 0.001) regimeLabel = 'Regime C — NaOCl only';
+  else regimeLabel = `Regime B — blend (${fmt(avail_eff*100,0)}% ClO2 / ${fmt((1-avail_eff)*100,0)}% NaOCl)`;
+
+  const clo2_dosed = full_clo2 * avail_eff;
+  const clo2_dosed_hr = (clo2_dosed/doses_per_day) / dose_duration;
+  const capOk = clo2_dosed_hr <= gen_capacity;
+
+  const naclo2_kg = eff>0 ? clo2_dosed*ratio_naclo2*(0.9/eff) : 0;
+  const hcl_kg = eff>0 ? clo2_dosed*ratio_hcl*(0.9/eff) : 0;
+  const naocl_kg = full_naocl * (1 - avail_eff);
+  const h2so4_extra = causticity(naocl_kg);
+  const h2so4_pure = h2so4_base + h2so4_extra;
+  const h2so4_comm = h2so4_strength>0 ? h2so4_pure/h2so4_strength : 0;
+
+  const naclo2_comm = naclo2_kg;
+  const hcl_comm = hcl_kg;
+  const naocl_comm = naocl_kg;
+
+  const cost_naclo2 = naclo2_comm*price_naclo2/1000;
+  const cost_hcl = hcl_comm*price_hcl/1000;
+  const cost_naocl = naocl_comm*price_naocl/1000;
+  const cost_h2so4 = h2so4_comm*price_h2so4/1000;
+  const total_cost = cost_naclo2 + cost_hcl + cost_naocl + cost_h2so4;
+
+  // Display: regime panel
+  document.getElementById('regime_label').textContent = regimeLabel;
+  document.getElementById('avail_line').innerHTML =
+    `Mechanical availability: <b>${fmt(avail_mech*100,0)}%</b> · Effective availability used today: <b>${fmt(avail_eff*100,1)}%</b>` +
+    (scarce!=='None' ? ` · Chemical flagged short-supply: <b>${scarce}</b>` : '');
+
+  const body = document.getElementById('blend_body');
+  body.innerHTML = `
+    <tr><td>NaClO₂ (${fmt(naclo2_strength*100,0)}%)</td><td>${fmt(naclo2_comm,0)}</td><td>n/a</td><td>${fmt(cost_naclo2)}</td></tr>
+    <tr><td>HCl (${fmt(hcl_strength*100,0)}%)</td><td>${fmt(hcl_comm,0)}</td><td>n/a</td><td>${fmt(cost_hcl)}</td></tr>
+    <tr><td>NaOCl (${fmt(naocl_strength*100,1)}%)</td><td>${fmt(naocl_comm,0)}</td><td>${fmt(naocl_comm/naocl_density,0)}</td><td>${fmt(cost_naocl)}</td></tr>
+    <tr><td>H₂SO₄ (${fmt(h2so4_strength*100,0)}%)</td><td>${fmt(h2so4_comm,0)}</td><td>n/a</td><td>${fmt(cost_h2so4)}</td></tr>
+    <tr><td>TOTAL</td><td></td><td></td><td>₹ ${fmt(total_cost)}/day</td></tr>
+  `;
+
+  const windowLine = document.getElementById('window_line');
+  if (scarce === 'NaClO2' || scarce === 'HCl') {
+    const windowNeed = scarce === 'NaClO2' ? naclo2_window_need : hcl_window_need;
+    const stock = scarce === 'NaClO2' ? stock_naclo2 : stock_hcl;
+    const days = scarce === 'NaClO2' ? days_naclo2 : days_hcl;
+    windowLine.innerHTML = `⚠ ${scarce} needed until next delivery (${fmt(days,0)} days) at full availability would be ` +
+      `<b>${fmt(windowNeed,0)} kg</b>, vs <b>${fmt(stock,0)} kg</b> in stock — availability throttled to ` +
+      `<b>${fmt(avail_eff*100,1)}%</b> so stock lasts exactly until resupply.`;
+  } else {
+    windowLine.textContent = '';
+  }
+
+  const cocCheck = (coc>=3 && coc<=6);
+  const checks = document.getElementById('checks');
+  checks.innerHTML = `
+    <div class="check ${cocCheck?'ok':'warn'}">COC ${cocCheck?'OK':'CHECK — outside 3–6 range'} (${coc.toFixed(2)})</div>
+    <div class="check ${capOk?'ok':'warn'}">Generator capacity ${capOk?'OK':'EXCEEDED'} (${clo2_dosed_hr.toFixed(1)} / ${gen_capacity} kg/hr)</div>
+    <div class="check ${acidNeeded?'warn':'ok'}">CW pH ${acidNeeded?'ABOVE target — acid dosing active':'within/below target — base H2SO4 = 0'} (${cw_ph.toFixed(2)})</div>
+  `;
+
+  // Feasibility
+  const stock = { NaClO2: stock_naclo2, HCl: stock_hcl, NaOCl: stock_naocl, H2SO4: stock_h2so4 };
+  const daysSupply = { NaClO2: days_naclo2, HCl: days_hcl, NaOCl: days_naocl, H2SO4: days_h2so4 };
+  const consumption = { NaClO2: naclo2_comm, HCl: hcl_comm, NaOCl: naocl_comm, H2SO4: h2so4_comm };
+  const feasRows = ['NaClO2','HCl','NaOCl','H2SO4'].map(chem => {
+    const c = consumption[chem];
+    if (c === 0) return {chem, daysLeft: null, status: 'N/A (not used)', risk: false};
+    const daysLeft = stock[chem] / c;
+    const risk = daysLeft < daysSupply[chem] - 1e-6; // epsilon guards against float rounding at exact boundary
+    return {chem, daysLeft, status: risk ? 'RISK — may stock out before resupply' : 'OK', risk};
+  });
+  document.getElementById('feasibility_body').innerHTML = feasRows.map(r => `
+    <tr><td>${r.chem}</td><td>${r.daysLeft===null?'n/a':fmt(r.daysLeft,1)}</td>
+    <td style="color:${r.risk?'var(--red)':'#7fd1a3'}">${r.status}</td></tr>
+  `).join('');
+}
+
+document.querySelectorAll('input, select').forEach(el => el.addEventListener('input', recalc));
+recalc();
+</script>
+</body>
+</html>
