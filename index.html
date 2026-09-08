@@ -129,6 +129,8 @@
   .blend-table td{padding:7px 6px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
   .blend-table td:first-child{font-family:'IBM Plex Sans',sans-serif;}
   .blend-table tr:last-child td{border-bottom:none;font-weight:600;color:var(--teal);}
+  .rec-badge{color:var(--teal);font-weight:700;font-size:11px;}
+  .regime-row-rec{background:rgba(63,182,173,0.08);}
 
   /* Process diagram */
   .diagram-panel svg{width:100%;height:auto;display:block;}
@@ -151,7 +153,7 @@
   <header>
     <div class="tag mono">NTPC SOLAPUR · 2×660 MW · CW CHEMICAL DOSING</div>
     <h1>Daily Chemical Dosing Calculator</h1>
-    <p>ClO₂ (via NaClO₂+HCl) is the preferred biocide for efficacy. NaOCl only fills whatever gap ClO₂ generation can't cover today — cost is reported, never used to substitute cheaper NaOCl for ClO₂.</p>
+    <p>By default, the cheaper of ClO₂ (via NaClO₂+HCl, up to today's generator availability) or NaOCl decides the blend — cost is the default driver. Flagging a chemical short-supply switches to conservation mode instead, focused on saving that chemical irrespective of cost.</p>
   </header>
 
   <div class="layout">
@@ -187,7 +189,7 @@
               <input type="number" id="orp" value="420"></div>
             <div class="field flagged"><label>ClO₂ generator availability <span class="unit">%</span></label>
               <input type="number" step="1" id="clo2_avail" value="100"></div>
-            <div class="flag-note">Mechanical/health/stock capability today — a REPORTED FACT, drives the whole ClO₂/NaOCl split. Not optimized for cost.</div>
+            <div class="flag-note">Mechanical/health/stock capability today — sets the CEILING on ClO₂ usage. Cost decides where within that ceiling to land, unless a chemical is flagged short-supply.</div>
             <div class="field"><label>NaClO₂ price <span class="unit">₹/MT</span></label>
               <input type="number" id="price_naclo2" value="77000"></div>
             <div class="field"><label>HCl price <span class="unit">₹/MT</span></label>
@@ -365,10 +367,15 @@
           <thead><tr><th>Chemical</th><th>kg/day</th><th>L/day</th><th>₹/day</th></tr></thead>
           <tbody id="blend_body"></tbody>
         </table>
-        <table class="blend-table" style="margin-top:10px">
-          <thead><tr><th>What the other options would cost</th><th>₹/day</th></tr></thead>
-          <tbody id="cost_compare_body"></tbody>
+      </div>
+
+      <div class="panel">
+        <h2><span class="dot" style="background:var(--teal)"></span>All three regimes — recommended one marked</h2>
+        <table class="blend-table">
+          <thead><tr><th>Regime</th><th>₹/day</th><th></th></tr></thead>
+          <tbody id="regime_compare_body"></tbody>
         </table>
+        <div class="note-line" id="prices_line" style="margin-top:8px"></div>
       </div>
 
       <div class="panel">
@@ -385,8 +392,8 @@
   <details class="notes">
     <summary>Notes on this model</summary>
     <ul class="readme">
-      <li>ClO₂ (NaClO₂ + HCl) is the preferred biocide for efficacy — cost never overrides that preference. NaOCl is dosed standalone only to cover whatever fraction of biocide duty today's ClO₂ generator availability can't reach.</li>
-      <li>NaClO₂/HCl flagged short-supply auto-throttles effective availability down to whatever level makes that chemical's stock last <b>exactly until the next delivery</b> — using as much ClO₂ as sustainably possible, not less.</li>
+      <li>Default (no chemical flagged): cost decides. Since cost scales linearly with ClO₂ usage, the cheapest choice is always one of two extremes — max ClO₂ (today's mechanical generator ceiling) or 0% ClO₂ (full NaOCl) — the model compares both and picks the cheaper.</li>
+      <li>Flagging a chemical short-supply switches to conservation mode: NaClO₂/HCl scarce throttles ClO₂ production down to whatever level makes that stock last <b>exactly until the next delivery</b> (using as much ClO₂ as sustainably possible). NaOCl/H₂SO₄ scarce forces ClO₂ up to the full mechanical ceiling to minimize NaOCl use. Both overrides apply irrespective of cost.</li>
       <li class="amber-text">Flagged fields (amber) are placeholder assumptions pending real site/trial data.</li>
       <li>H₂SO₄ = base (blowdown-driven, gated on today's CW pH — zero whenever pH is within/below the target band) + a causticity offset that scales with however much NaOCl is actually dosed today.</li>
       <li>ORP and CW P-alkalinity are logged for reference/trending only.</li>
@@ -475,12 +482,6 @@ function recalc(){
   const avail_mech = clo2_avail_input/100;
   const avail_cap_naclo2 = (scarce === 'NaClO2') ? Math.min(1, stock_naclo2/Math.max(naclo2_window_need,0.001)) : 1;
   const avail_cap_hcl = (scarce === 'HCl') ? Math.min(1, stock_hcl/Math.max(hcl_window_need,0.001)) : 1;
-  const avail_eff = Math.min(avail_mech, avail_cap_naclo2, avail_cap_hcl);
-
-  let regimeLabel;
-  if (avail_eff >= 0.999) regimeLabel = 'Regime A — ClO2 only';
-  else if (avail_eff <= 0.001) regimeLabel = 'Regime C — NaOCl only';
-  else regimeLabel = `Regime B — blend (${fmt(avail_eff*100,0)}% ClO2 / ${fmt((1-avail_eff)*100,0)}% NaOCl)`;
 
   function computeBlend(avail){
     const clo2_dosed = full_clo2 * avail;
@@ -499,8 +500,36 @@ function recalc(){
             cost_naclo2, cost_hcl, cost_naocl, cost_h2so4, total};
   }
 
+  // Cost is a straight-line function of availability (all terms scale linearly with avail),
+  // so the cost-minimum within any allowed range is always at one of its two endpoints —
+  // no interior search needed, just compare the endpoints.
+  const costAtMech = computeBlend(avail_mech).total;
+  const costAtZero = computeBlend(0).total;
+  const cheaperIsMech = costAtMech <= costAtZero;
+
+  let avail_eff;
+  let decisionMode; // 'cost' | 'conserve-clo2' | 'conserve-naocl'
+  if (scarce === 'NaClO2' || scarce === 'HCl') {
+    // Conservation focus: use as much ClO2 as the stock can sustainably support — irrespective of cost.
+    avail_eff = Math.min(avail_mech, avail_cap_naclo2, avail_cap_hcl);
+    decisionMode = 'conserve-clo2';
+  } else if (scarce === 'NaOCl' || scarce === 'H2SO4') {
+    // Conservation focus: force maximum ClO2 usage to minimize NaOCl — irrespective of cost.
+    avail_eff = avail_mech;
+    decisionMode = 'conserve-naocl';
+  } else {
+    // Default: cheapest of the two endpoints, capped by mechanical availability.
+    avail_eff = cheaperIsMech ? avail_mech : 0;
+    decisionMode = 'cost';
+  }
+
+  let regimeLabel;
+  if (avail_eff >= 0.999) regimeLabel = 'Regime A — ClO2 only';
+  else if (avail_eff <= 0.001) regimeLabel = 'Regime C — NaOCl only';
+  else regimeLabel = `Regime B — blend (${fmt(avail_eff*100,0)}% ClO2 / ${fmt((1-avail_eff)*100,0)}% NaOCl)`;
+
   const today = computeBlend(avail_eff);
-  const pureClo2 = computeBlend(1);
+  const pureClo2 = computeBlend(avail_mech);
   const pureNaocl = computeBlend(0);
 
   const clo2_dosed = today.clo2_dosed;
@@ -536,17 +565,21 @@ function recalc(){
   }
 
   let whyText;
-  if (scarce === 'None') {
-    whyText = `Equals mechanical input (<b>${fmt(avail_mech*100,0)}%</b>) — no chemical flagged short-supply, cost plays no role.`;
-  } else if (scarce === 'NaClO2' || scarce === 'HCl') {
+  if (decisionMode === 'cost') {
+    if (cheaperIsMech) {
+      whyText = `Cost-optimal by default: max ClO2 (mechanical ceiling <b>${fmt(avail_mech*100,0)}%</b>, ₹${fmt(costAtMech)}/day) is cheaper than 0% ClO2 (₹${fmt(costAtZero)}/day).`;
+    } else {
+      whyText = `Cost-optimal by default: 0% ClO2 / full NaOCl (₹${fmt(costAtZero)}/day) is cheaper than max ClO2 (mechanical ceiling ${fmt(avail_mech*100,0)}%, ₹${fmt(costAtMech)}/day).`;
+    }
+  } else if (decisionMode === 'conserve-clo2') {
     if (avail_eff < avail_mech - 1e-9) {
       const days = scarce === 'NaClO2' ? days_naclo2 : days_hcl;
-      whyText = `Throttled from <b>${fmt(avail_mech*100,0)}%</b> to <b>${fmt(avail_eff*100,1)}%</b> — ${scarce} is short-supply; max ClO2 usage lasting until delivery in ${fmt(days,0)}d.`;
+      whyText = `Conservation focus: throttled from <b>${fmt(avail_mech*100,0)}%</b> to <b>${fmt(avail_eff*100,1)}%</b> — ${scarce} is short-supply; max ClO2 usage lasting until delivery in ${fmt(days,0)}d. Cost is not a factor while a chemical is flagged.`;
     } else {
-      whyText = `Equals mechanical input (<b>${fmt(avail_mech*100,0)}%</b>) — even with ${scarce} flagged, mechanical capacity is the binding limit.`;
+      whyText = `Conservation focus: equals mechanical input (<b>${fmt(avail_mech*100,0)}%</b>) — even with ${scarce} flagged, mechanical capacity is already the binding limit.`;
     }
   } else {
-    whyText = `Equals mechanical input (<b>${fmt(avail_mech*100,0)}%</b>) — full ClO2 use already minimizes NaOCl, conserving ${scarce}.`;
+    whyText = `Conservation focus: forced to maximum mechanical availability (<b>${fmt(avail_mech*100,0)}%</b>) to minimize NaOCl usage, protecting ${scarce} — irrespective of cost.`;
   }
   document.getElementById('why_line').innerHTML = whyText;
 
@@ -574,11 +607,14 @@ function recalc(){
     <tr><td>TOTAL</td><td></td><td></td><td>₹ ${fmt(total_cost)}</td></tr>
   `;
 
-  document.getElementById('cost_compare_body').innerHTML = `
-    <tr><td>Today's actual blend (${fmt(avail_eff*100,1)}%)</td><td>₹ ${fmt(total_cost)}</td></tr>
-    <tr><td>If 100% ClO2 (Regime A)</td><td>₹ ${fmt(pureClo2.total)}</td></tr>
-    <tr><td>If 0% ClO2 (Regime C)</td><td>₹ ${fmt(pureNaocl.total)}</td></tr>
+  const isRegA = avail_eff >= 0.999, isRegB = (avail_eff < 0.999 && avail_eff > 0.001), isRegC = avail_eff <= 0.001;
+  document.getElementById('regime_compare_body').innerHTML = `
+    <tr class="${isRegA?'regime-row-rec':''}"><td>Regime A — ClO2 only (ceiling ${fmt(avail_mech*100,0)}%)</td><td>₹ ${fmt(pureClo2.total)}</td><td class="rec-badge">${isRegA?'◄ RECOMMENDED':''}</td></tr>
+    <tr class="${isRegB?'regime-row-rec':''}"><td>Regime B — blend (today's actual, ${fmt(avail_eff*100,1)}%)</td><td>₹ ${fmt(total_cost)}</td><td class="rec-badge">${isRegB?'◄ RECOMMENDED':''}</td></tr>
+    <tr class="${isRegC?'regime-row-rec':''}"><td>Regime C — NaOCl only (0%)</td><td>₹ ${fmt(pureNaocl.total)}</td><td class="rec-badge">${isRegC?'◄ RECOMMENDED':''}</td></tr>
   `;
+  document.getElementById('prices_line').textContent =
+    `Today's prices: NaClO₂ ₹${fmt(price_naclo2)}/MT · HCl ₹${fmt(price_hcl)}/MT · NaOCl ₹${fmt(price_naocl)}/MT · H₂SO₄ ₹${fmt(price_h2so4)}/MT`;
 
   // ---- Feasibility ----
   const stock = { NaClO2: stock_naclo2, HCl: stock_hcl, NaOCl: stock_naocl, H2SO4: stock_h2so4 };
