@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>CW Chemical Dosing Calculator — NTPC Solapur</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/3.18.0/js/msal-browser.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -145,6 +148,41 @@
   details.notes summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;padding:4px 0;}
 
   footer{margin-top:16px;font-size:11px;color:#5f747c;line-height:1.6;}
+
+  /* ---- Daily Log Entry tab ---- */
+  .field.tier1 input,.field.tier1 select{border-color:var(--red);background:#2a1614;}
+  .field.tier1 label{color:var(--red);}
+  .field.tier2 input,.field.tier2 select{border-color:#5a9bd8;background:#132535;}
+  .field.tier2 label{color:#5a9bd8;}
+  .field.tier3 input,.field.tier3 select{border-color:var(--slate);}
+  .field.tier3 label{color:var(--slate);}
+  .field.before input,.field.before select{border-color:var(--amber);background:#241d10;}
+  .field.before label{color:var(--amber);}
+  .field.after input,.field.after select{border-color:var(--teal);background:#0f2624;}
+  .field.after label{color:var(--teal);}
+  .tier-badge{display:inline-block;font-size:9px;padding:2px 7px;border-radius:2px;margin-left:8px;font-weight:700;letter-spacing:.03em;vertical-align:middle;}
+  .tier-badge.t1{background:var(--red);color:#2a0e0b;}
+  .tier-badge.t2{background:#5a9bd8;color:#08192b;}
+  .tier-badge.t3{background:var(--slate);color:#0d171b;}
+
+  .lock-overlay{background:var(--panel-2);border:1px dashed var(--line);border-radius:3px;padding:34px 20px;text-align:center;}
+  .lock-overlay .lock-icon{font-size:26px;margin-bottom:10px;}
+  .lock-overlay p{color:var(--muted);font-size:12.5px;margin:0 0 14px;}
+  .lock-overlay input[type=password]{width:220px;max-width:80%;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:2px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:center;}
+
+  .btn{background:var(--teal-dim);border:1px solid var(--teal);color:var(--teal);border-radius:2px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;text-transform:uppercase;letter-spacing:.04em;}
+  .btn:hover{background:var(--teal);color:#08221f;}
+  .btn.secondary{background:transparent;border-color:var(--line);color:var(--muted);}
+  .btn.secondary:hover{border-color:var(--muted);color:var(--text);}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+
+  .log-table-wrap{overflow-x:auto;margin-top:14px;max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:2px;}
+  .log-table{width:100%;border-collapse:collapse;font-size:10.5px;white-space:nowrap;}
+  .log-table th{text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;letter-spacing:.02em;padding:6px 7px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel-2);}
+  .log-table td{padding:5px 7px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
+  .log-table td.del{cursor:pointer;color:var(--red);font-family:'IBM Plex Sans',sans-serif;text-align:center;font-weight:700;}
+  .log-count{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5;}
+  .save-msg{font-size:11.5px;margin-top:8px;min-height:14px;}
 </style>
 </head>
 <body>
@@ -163,6 +201,7 @@
       <div class="tabs">
         <button class="tab-btn active" data-tab="daily">Daily Input</button>
         <button class="tab-btn" data-tab="config">Config</button>
+        <button class="tab-btn" data-tab="log">Data Log 🔒</button>
       </div>
 
       <div class="tab-panel active" id="tab-daily">
@@ -293,6 +332,196 @@
               <div class="flag-note">PLACEHOLDER — assumed time to deliver one shock dose, for the capacity check only.</div>
             </div>
           </details>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-log">
+        <div class="panel" id="log-gate-panel">
+          <h2><span class="dot" style="background:var(--red)"></span>Daily Log Entry — restricted access</h2>
+          <div class="lock-overlay" id="lock-overlay">
+            <div class="lock-icon">🔒</div>
+            <p>Password required to add or export dosing log entries.</p>
+            <input type="password" id="log-pwd" placeholder="Password" autocomplete="off" onkeydown="if(event.key==='Enter')tryUnlock();">
+            <div class="btn-row" style="justify-content:center">
+              <button class="btn" onclick="tryUnlock()">Unlock</button>
+            </div>
+            <div class="save-msg" id="lock-msg"></div>
+          </div>
+        </div>
+
+        <div id="log-content" style="display:none">
+          <div class="panel">
+            <h2><span class="dot" style="background:#5a9bd8"></span>OneDrive live sync
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">— one-time Azure setup, then sign in</span>
+            </h2>
+            <details class="subgroup">
+              <summary>Azure AD app settings (from your app registration)</summary>
+              <div class="field-grid">
+                <div class="field span2"><label>Application (client) ID</label>
+                  <input type="text" id="az_client_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+                <div class="field"><label>Directory (tenant) ID <span class="unit">or leave as "organizations"</span></label>
+                  <input type="text" id="az_tenant_id" placeholder="organizations"></div>
+                <div class="field"><label>OneDrive file path</label>
+                  <input type="text" id="az_file_path" value="/CW_Dosing_Live_Log.xlsx"></div>
+              </div>
+              <div class="btn-row">
+                <button class="btn secondary" onclick="saveAzureConfig()">Save settings</button>
+              </div>
+            </details>
+            <div class="btn-row">
+              <button class="btn" onclick="signInMicrosoft()">Sign in with Microsoft</button>
+              <button class="btn secondary" onclick="signOutMicrosoft()">Sign out</button>
+              <button class="btn" onclick="syncToOneDrive()">⇪ Sync now</button>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--muted)">
+              <input type="checkbox" id="log_autosync" style="width:auto"> Auto-sync to OneDrive after every "Add entry"
+            </label>
+            <div class="save-msg" id="onedrive-status" style="margin-top:8px">Not configured yet — fill in Azure settings above, then Save.</div>
+          </div>
+
+          <div class="panel">
+            <h2><span class="dot" style="background:#4a8f5c"></span>Google Sheets backup
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">— one-time Google Cloud setup, then sign in</span>
+            </h2>
+            <details class="subgroup">
+              <summary>Google Cloud OAuth settings (from your Cloud Console project)</summary>
+              <div class="field-grid">
+                <div class="field span2"><label>OAuth Client ID <span class="unit">Web application type, from Google Cloud Console</span></label>
+                  <input type="text" id="gs_client_id" placeholder="xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com"></div>
+                <div class="field span2"><label>Spreadsheet ID <span class="unit">from your sheet's URL — already filled in for your CW_Dosing_Live_Log sheet</span></label>
+                  <input type="text" id="gs_spreadsheet_id" value="1hHWhB1SijwwPry7flf6R3OabaJ1pBcDLAXT1j35aEL8"></div>
+                <div class="field span2"><label>Folder ID <span class="unit">just for the "open in Drive" link — already filled in for your backup folder</span></label>
+                  <input type="text" id="gs_folder_id" value="1pfVmIqAyxksSUMLT3I-34bOV0LyiElKg"></div>
+              </div>
+              <div class="flag-note">This writes into the exact spreadsheet above using only the Sheets API — it never asks for broad Drive access. If the spreadsheet isn't already inside your backup folder, drag it there once in Drive; the tool won't move it for you.</div>
+              <div class="btn-row">
+                <button class="btn secondary" onclick="saveGoogleConfig()">Save settings</button>
+              </div>
+            </details>
+            <div class="btn-row">
+              <button class="btn" onclick="signInGoogle()">Sign in with Google</button>
+              <button class="btn secondary" onclick="signOutGoogle()">Sign out</button>
+              <button class="btn" onclick="syncToGoogleSheets()">⇪ Sync now</button>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--muted)">
+              <input type="checkbox" id="log_autosync_gsheet" style="width:auto"> Auto-sync to Google Sheets after every "Add entry"
+            </label>
+            <div class="save-msg" id="gsheet-status" style="margin-top:8px">Not configured yet — fill in Google Cloud settings above, then Save.</div>
+            <div id="gsheet-link-wrap" style="margin-top:6px;display:none">
+              <a id="gsheet-link" href="#" target="_blank" rel="noopener" class="mono" style="color:var(--teal);font-size:11.5px">Open backup spreadsheet ↗</a>
+              <span class="mono" style="color:var(--muted);font-size:11.5px"> · </span>
+              <a id="gsheet-folder-link" href="#" target="_blank" rel="noopener" class="mono" style="color:var(--teal);font-size:11.5px">Open Drive folder ↗</a>
+
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2><span class="dot" style="background:var(--red)"></span>New log entry
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">— before-dosing baseline, chemicals dosed, after-dosing result</span>
+            </h2>
+            <div class="field-grid">
+              <div class="field"><label>Date</label><input type="date" id="log_date"></div>
+              <div class="field"><label>Shift <span class="unit">1/2/3, blank = daily total</span></label>
+                <select id="log_shift">
+                  <option value="">— (daily total)</option>
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                </select></div>
+            </div>
+
+            <details class="subgroup" open>
+              <summary>Before dosing — CW parameters <span class="tier-badge" style="background:var(--amber);color:#2b2007">BASELINE</span></summary>
+              <div class="btn-row" style="margin-top:0;margin-bottom:10px">
+                <button type="button" class="btn secondary" onclick="copyFromCalculator()">↳ Copy today's measured values from Daily Input tab</button>
+              </div>
+              <div class="field-grid">
+                <div class="field before"><label>CW pH (before)</label><input type="number" step="0.01" id="log_before_ph"></div>
+                <div class="field before"><label>CW M-Alkalinity (before) <span class="unit">ppm CaCO₃</span></label><input type="number" id="log_before_malk"></div>
+                <div class="field before"><label>CW P-Alkalinity (before) <span class="unit">ppm CaCO₃</span></label><input type="number" id="log_before_palk"></div>
+                <div class="field before"><label>ORP (before) <span class="unit">mV</span></label><input type="number" id="log_before_orp"></div>
+                <div class="field before"><label>ClO₂ residual (before) <span class="unit">ppm</span></label><input type="number" step="0.01" id="log_before_clo2res"></div>
+                <div class="field before"><label>Free Cl₂ residual (before) <span class="unit">ppm</span></label><input type="number" step="0.01" id="log_before_freecl2res"></div>
+              </div>
+            </details>
+
+            <details class="subgroup" open>
+              <summary>Chemicals dosed <span class="tier-badge t1">REQUIRED</span></summary>
+              <div class="field-grid">
+                <div class="field tier1"><label>NaClO₂ dosed <span class="unit">kg</span></label><input type="number" step="0.01" id="log_naclo2"></div>
+                <div class="field tier1"><label>NaOCl dosed — total <span class="unit">kg</span></label><input type="number" step="0.01" id="log_naocl_total"></div>
+                <div class="field tier1"><label>NaOCl dosed — as ClO₂ activator <span class="unit">kg, if metered</span></label><input type="number" step="0.01" id="log_naocl_activator"></div>
+                <div class="field tier1"><label>H₂SO₄ dosed <span class="unit">kg</span></label><input type="number" step="0.01" id="log_h2so4"></div>
+              </div>
+            </details>
+
+            <details class="subgroup" open>
+              <summary>After dosing — CW parameters <span class="tier-badge" style="background:var(--teal);color:#08221f">RESULT</span></summary>
+              <div class="field-grid">
+                <div class="field after"><label>CW pH (after)</label><input type="number" step="0.01" id="log_after_ph"></div>
+                <div class="field after"><label>CW M-Alkalinity (after) <span class="unit">ppm CaCO₃</span></label><input type="number" id="log_after_malk"></div>
+                <div class="field after"><label>ORP (after) <span class="unit">mV</span></label><input type="number" id="log_after_orp"></div>
+                <div class="field after"><label>ClO₂ residual achieved (after) <span class="unit">ppm</span></label><input type="number" step="0.01" id="log_after_clo2res"></div>
+                <div class="field after"><label>Free Cl₂ residual achieved (after) <span class="unit">ppm</span></label><input type="number" step="0.01" id="log_after_freecl2res"></div>
+              </div>
+            </details>
+
+            <details class="subgroup">
+              <summary>Tier 2 — Cross-check <span class="tier-badge t2">SKIP IF LOGGED ELSEWHERE</span></summary>
+              <div class="field-grid">
+                <div class="field tier2"><label>Make-up water flow <span class="unit">m³/day</span></label><input type="number" id="log_mu_flow"></div>
+                <div class="field tier2"><label>Blowdown flow <span class="unit">m³/day</span></label><input type="number" id="log_bd_flow"></div>
+                <div class="field tier2"><label>Make-up pH</label><input type="number" step="0.01" id="log_mu_ph"></div>
+                <div class="field tier2"><label>Unit-1 load <span class="unit">MW</span></label><input type="number" id="log_u1_load"></div>
+                <div class="field tier2"><label>Unit-2 load <span class="unit">MW</span></label><input type="number" id="log_u2_load"></div>
+              </div>
+            </details>
+
+            <details class="subgroup">
+              <summary>Tier 3 — Optional <span class="tier-badge t3">NICE TO HAVE</span></summary>
+              <div class="field-grid">
+                <div class="field tier3"><label>ClO₂ generator efficiency test result <span class="unit">%, test days only</span></label><input type="number" step="0.1" id="log_eff_test"></div>
+                <div class="field tier3"><label>NaClO₂ price that day <span class="unit">₹/MT</span></label><input type="number" id="log_price_naclo2"></div>
+                <div class="field tier3"><label>NaOCl price that day <span class="unit">₹/MT</span></label><input type="number" id="log_price_naocl"></div>
+                <div class="field tier3"><label>H₂SO₄ price that day <span class="unit">₹/MT</span></label><input type="number" id="log_price_h2so4"></div>
+                <div class="field tier3"><label>NaClO₂ stock that day <span class="unit">kg</span></label><input type="number" id="log_stock_naclo2"></div>
+                <div class="field tier3"><label>NaOCl stock that day <span class="unit">kg</span></label><input type="number" id="log_stock_naocl"></div>
+                <div class="field tier3"><label>H₂SO₄ stock that day <span class="unit">kg</span></label><input type="number" id="log_stock_h2so4"></div>
+                <div class="field tier3 span2"><label>Remarks / anomalies</label>
+                  <input type="text" id="log_remarks" placeholder="Generator trip, meter fault, manual override, maintenance, etc."></div>
+              </div>
+            </details>
+
+            <div class="btn-row">
+              <button class="btn" onclick="addLogEntry()">+ Add entry to log</button>
+              <button class="btn secondary" onclick="lockLog()">Lock</button>
+            </div>
+            <div class="save-msg" id="entry-msg"></div>
+          </div>
+
+          <div class="panel">
+            <h2><span class="dot" style="background:var(--teal)"></span>Logged entries <span id="log-count-badge" style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px"></span></h2>
+            <div class="log-table-wrap">
+              <table class="log-table" id="log-table">
+                <thead><tr>
+                  <th>Date</th><th>Shift</th>
+                  <th>pH bef.</th><th>M-Alk bef.</th><th>P-Alk bef.</th><th>ORP bef.</th><th>ClO₂ bef.</th><th>Cl₂ bef.</th>
+                  <th>NaClO₂</th><th>NaOCl tot.</th><th>NaOCl act.</th><th>H₂SO₄</th>
+                  <th>pH aft.</th><th>M-Alk aft.</th><th>ORP aft.</th><th>ClO₂ aft.</th><th>Cl₂ aft.</th>
+                  <th>MU flow</th><th>BD flow</th><th>MU pH</th><th>U1</th><th>U2</th><th>Eff. test</th>
+                  <th>NaClO₂ ₹</th><th>NaOCl ₹</th><th>H₂SO₄ ₹</th><th>NaClO₂ stk</th><th>NaOCl stk</th><th>H₂SO₄ stk</th><th>Remarks</th><th></th>
+                </tr></thead>
+                <tbody id="log-table-body"></tbody>
+              </table>
+            </div>
+            <div class="btn-row">
+              <button class="btn" onclick="exportToExcel()">⬇ Export all to Excel (.xlsx)</button>
+              <button class="btn secondary" onclick="document.getElementById('log-import-file').click()">⬆ Import from Excel (.xlsx)</button>
+              <input type="file" id="log-import-file" accept=".xlsx,.xls" style="display:none" onchange="importFromExcel(event)">
+              <button class="btn secondary" onclick="clearLog()">Clear all entries</button>
+            </div>
+            <div class="save-msg" id="export-msg"></div>
+            <div class="save-msg" id="import-msg"></div>
+            <div class="log-count">Entries are stored in this browser only. Export regularly and save the downloaded file into your OneDrive-synced Excel 365 folder — each export writes every logged row so far into a fresh .xlsx.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -640,6 +869,498 @@ function recalc(){
 
 document.querySelectorAll('input, select').forEach(el => el.addEventListener('input', recalc));
 recalc();
+
+// ================= DATA LOG (password-gated, exports to .xlsx) =================
+const LOG_PASSWORD = 'CWT@2026';
+const LOG_KEY = 'cw_dosing_log_entries_v1';
+
+const LOG_HEADERS = ['Date','Shift',
+  'CW pH (before dosing)','CW M-Alkalinity (before dosing)','CW P-Alkalinity (before dosing)','ORP (before dosing)',
+  'ClO2 residual (before dosing)','Free Cl2 residual (before dosing)',
+  'NaClO2 dosed','NaOCl dosed - total','NaOCl dosed - as ClO2 activator','H2SO4 dosed',
+  'CW pH (after dosing)','CW M-Alkalinity (after dosing)','ORP (after dosing)',
+  'ClO2 residual achieved (after dosing)','Free Cl2 residual achieved (after dosing)',
+  'Make-up water flow','Blowdown flow','Make-up pH','Unit-1 load','Unit-2 load',
+  'ClO2 generator efficiency test result','NaClO2 price that day','NaOCl price that day','H2SO4 price that day',
+  'NaClO2 stock that day','NaOCl stock that day','H2SO4 stock that day','Remarks / anomalies'];
+const LOG_UNITS = ['-','1/2/3',
+  '-','ppm CaCO3','ppm CaCO3','mV','ppm','ppm',
+  'kg','kg','kg','kg',
+  '-','ppm CaCO3','mV','ppm','ppm',
+  'm3/day','m3/day','-','MW','MW',
+  '%','Rs/MT','Rs/MT','Rs/MT','kg','kg','kg','free text'];
+const LOG_FIELD_IDS = ['log_date','log_shift',
+  'log_before_ph','log_before_malk','log_before_palk','log_before_orp','log_before_clo2res','log_before_freecl2res',
+  'log_naclo2','log_naocl_total','log_naocl_activator','log_h2so4',
+  'log_after_ph','log_after_malk','log_after_orp','log_after_clo2res','log_after_freecl2res',
+  'log_mu_flow','log_bd_flow','log_mu_ph','log_u1_load','log_u2_load',
+  'log_eff_test','log_price_naclo2','log_price_naocl','log_price_h2so4',
+  'log_stock_naclo2','log_stock_naocl','log_stock_h2so4','log_remarks'];
+
+function getLog(){
+  try{ return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }catch(e){ return []; }
+}
+function saveLog(entries){ localStorage.setItem(LOG_KEY, JSON.stringify(entries)); }
+
+function tryUnlock(){
+  const pwd = document.getElementById('log-pwd').value;
+  const msg = document.getElementById('lock-msg');
+  if(pwd === LOG_PASSWORD){
+    sessionStorage.setItem('cw_log_unlocked','1');
+    document.getElementById('log-gate-panel').style.display = 'none';
+    document.getElementById('log-content').style.display = 'block';
+    if(!document.getElementById('log_date').value) document.getElementById('log_date').valueAsDate = new Date();
+    renderLogTable();
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Incorrect password.';
+  }
+}
+function lockLog(){
+  sessionStorage.removeItem('cw_log_unlocked');
+  document.getElementById('log-content').style.display = 'none';
+  document.getElementById('log-gate-panel').style.display = 'block';
+  document.getElementById('log-pwd').value = '';
+  document.getElementById('lock-msg').textContent = '';
+}
+function checkLogUnlockedOnLoad(){
+  if(sessionStorage.getItem('cw_log_unlocked') === '1'){
+    document.getElementById('log-gate-panel').style.display = 'none';
+    document.getElementById('log-content').style.display = 'block';
+    if(!document.getElementById('log_date').value) document.getElementById('log_date').valueAsDate = new Date();
+    renderLogTable();
+  }
+}
+
+function copyFromCalculator(){
+  const map = {
+    log_before_ph:'cw_ph', log_before_malk:'m_alk', log_before_palk:'p_alk', log_before_orp:'orp',
+    log_before_clo2res:'clo2_meas', log_before_freecl2res:'free_cl2_meas',
+    log_mu_flow:'mu_flow', log_bd_flow:'bd_flow', log_mu_ph:'mu_ph',
+    log_price_naclo2:'price_naclo2', log_price_naocl:'price_naocl', log_price_h2so4:'price_h2so4',
+    log_stock_naclo2:'stock_naclo2', log_stock_naocl:'stock_naocl', log_stock_h2so4:'stock_h2so4'
+  };
+  Object.entries(map).forEach(([logId, calcId]) => {
+    document.getElementById(logId).value = document.getElementById(calcId).value;
+  });
+}
+
+function addLogEntry(){
+  const dateEl = document.getElementById('log_date');
+  const entryMsg = document.getElementById('entry-msg');
+  if(!dateEl.value){
+    entryMsg.style.color = 'var(--red)';
+    entryMsg.textContent = 'Date is required.';
+    return;
+  }
+  const d = new Date(dateEl.value + 'T00:00:00');
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mon = d.toLocaleString('en-US', {month:'short'});
+  const formattedDate = `${dd}-${mon}-${d.getFullYear()}`;
+
+  const entry = LOG_FIELD_IDS.map(id => id === 'log_date' ? formattedDate : document.getElementById(id).value);
+  const entries = getLog();
+  entries.push(entry);
+  saveLog(entries);
+
+  entryMsg.style.color = 'var(--teal)';
+  entryMsg.textContent = `Entry added for ${formattedDate}${entry[1] ? (' shift ' + entry[1]) : ''}. ${entries.length} total in log.`;
+  renderLogTable();
+
+  const autosyncEl = document.getElementById('log_autosync');
+  if(autosyncEl && autosyncEl.checked){
+    syncToOneDrive();
+  }
+  const autosyncGsheetEl = document.getElementById('log_autosync_gsheet');
+  if(autosyncGsheetEl && autosyncGsheetEl.checked){
+    syncToGoogleSheets();
+  }
+
+  // Clear chemicals-dosed and after-dosing fields for the next entry; keep before-dosing/context as they're often unchanged within a day
+  ['log_naclo2','log_naocl_total','log_naocl_activator','log_h2so4',
+   'log_after_ph','log_after_malk','log_after_orp','log_after_clo2res','log_after_freecl2res',
+   'log_remarks','log_eff_test']
+    .forEach(id => { document.getElementById(id).value = ''; });
+}
+
+function deleteEntry(idx){
+  const entries = getLog();
+  entries.splice(idx, 1);
+  saveLog(entries);
+  renderLogTable();
+}
+
+function clearLog(){
+  if(confirm('Delete all logged entries from this browser? Export first if you need to keep them — this cannot be undone.')){
+    saveLog([]);
+    renderLogTable();
+    document.getElementById('export-msg').textContent = '';
+  }
+}
+
+function renderLogTable(){
+  const entries = getLog();
+  document.getElementById('log-count-badge').textContent = `(${entries.length} row${entries.length === 1 ? '' : 's'})`;
+  document.getElementById('log-table-body').innerHTML = entries.map((row, idx) => {
+    const cells = row.map(v => `<td>${(v === '' || v === undefined || v === null) ? '—' : v}</td>`).join('');
+    return `<tr>${cells}<td class="del" onclick="deleteEntry(${idx})" title="Delete row">✕</td></tr>`;
+  }).join('');
+}
+
+function exportToExcel(){
+  const entries = getLog();
+  const exportMsg = document.getElementById('export-msg');
+  if(entries.length === 0){
+    exportMsg.style.color = 'var(--amber)';
+    exportMsg.textContent = 'No entries to export yet.';
+    return;
+  }
+  const aoa = [LOG_HEADERS, LOG_UNITS, ...entries];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = LOG_HEADERS.map(() => ({wch: 15}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Daily_Log_Template');
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `CW_Dosing_Daily_Log_${stamp}.xlsx`);
+  exportMsg.style.color = 'var(--teal)';
+  exportMsg.textContent = `Exported ${entries.length} row(s) to CW_Dosing_Daily_Log_${stamp}.xlsx — save this into your OneDrive-synced Excel 365 folder.`;
+}
+
+function importFromExcel(event){
+  const file = event.target.files[0];
+  const importMsg = document.getElementById('import-msg');
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type: 'array'});
+      const sheetName = wb.SheetNames.includes('Daily_Log_Template') ? 'Daily_Log_Template' : wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, {header: 1, raw: false, defval: ''});
+
+      const dataRows = rows.filter(r => {
+        if(!r || r.length === 0) return false;
+        const first = String(r[0]).trim();
+        if(first === '') return false;
+        if(first === LOG_HEADERS[0]) return false;              // skip header row
+        if(first === LOG_UNITS[0]) return false;                // skip units row ('-')
+        if(/SAMPLE ROW/i.test(String(r[r.length - 1] || ''))) return false; // skip template sample row
+        return true;
+      }).map(r => LOG_HEADERS.map((_, i) => (r[i] !== undefined ? r[i] : '')));
+
+      if(dataRows.length === 0){
+        importMsg.style.color = 'var(--amber)';
+        importMsg.textContent = 'No data rows found in that file.';
+        event.target.value = '';
+        return;
+      }
+
+      const merged = getLog().concat(dataRows);
+      saveLog(merged);
+      renderLogTable();
+      importMsg.style.color = 'var(--teal)';
+      importMsg.textContent = `Imported ${dataRows.length} row(s). ${merged.length} total in log now. (Rows are appended, not de-duplicated — re-importing the same file will create repeats.)`;
+    } catch(err){
+      importMsg.style.color = 'var(--red)';
+      importMsg.textContent = 'Could not read that file — make sure it is an .xlsx export from this tool or the Daily_Log_Template.';
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+checkLogUnlockedOnLoad();
+
+// ================= ONEDRIVE LIVE SYNC (MSAL.js + Microsoft Graph) =================
+let msalInstance = null;
+
+function loadAzureConfig(){
+  const saved = JSON.parse(localStorage.getItem('cw_azure_config') || '{}');
+  if(saved.clientId) document.getElementById('az_client_id').value = saved.clientId;
+  if(saved.tenantId) document.getElementById('az_tenant_id').value = saved.tenantId;
+  if(saved.filePath) document.getElementById('az_file_path').value = saved.filePath;
+  if(saved.clientId) initMsal(saved);
+  return saved;
+}
+
+function saveAzureConfig(){
+  const config = {
+    clientId: document.getElementById('az_client_id').value.trim(),
+    tenantId: document.getElementById('az_tenant_id').value.trim() || 'organizations',
+    filePath: document.getElementById('az_file_path').value.trim() || '/CW_Dosing_Live_Log.xlsx'
+  };
+  if(!config.clientId){
+    setOnedriveStatus('Enter your Azure AD Application (client) ID first.', 'var(--red)');
+    return;
+  }
+  localStorage.setItem('cw_azure_config', JSON.stringify(config));
+  initMsal(config);
+  setOnedriveStatus('Settings saved. Click "Sign in with Microsoft" to connect.', 'var(--teal)');
+}
+
+function initMsal(config){
+  const msalConfig = {
+    auth: {
+      clientId: config.clientId,
+      authority: `https://login.microsoftonline.com/${config.tenantId}`,
+      redirectUri: window.location.origin + window.location.pathname
+    },
+    cache: { cacheLocation: 'localStorage' }
+  };
+  msalInstance = new msal.PublicClientApplication(msalConfig);
+}
+
+function setOnedriveStatus(text, color){
+  const el = document.getElementById('onedrive-status');
+  el.textContent = text;
+  el.style.color = color || 'var(--muted)';
+}
+
+async function signInMicrosoft(){
+  const config = JSON.parse(localStorage.getItem('cw_azure_config') || '{}');
+  if(!config.clientId){
+    setOnedriveStatus('Save your Azure settings first.', 'var(--red)');
+    return;
+  }
+  if(!msalInstance) initMsal(config);
+  try{
+    const result = await msalInstance.loginPopup({ scopes: ['Files.ReadWrite'] });
+    msalInstance.setActiveAccount(result.account);
+    setOnedriveStatus(`Signed in as ${result.account.username}.`, 'var(--teal)');
+  }catch(err){
+    setOnedriveStatus('Sign-in failed: ' + (err.errorMessage || err.message || err), 'var(--red)');
+  }
+}
+
+function signOutMicrosoft(){
+  if(msalInstance){
+    const account = msalInstance.getActiveAccount() || (msalInstance.getAllAccounts()[0]);
+    if(account){
+      msalInstance.logoutPopup({ account });
+      return;
+    }
+  }
+  setOnedriveStatus('Not signed in.', 'var(--muted)');
+}
+
+async function getGraphToken(){
+  const config = JSON.parse(localStorage.getItem('cw_azure_config') || '{}');
+  if(!msalInstance) initMsal(config);
+  const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+  if(!account) throw new Error('Not signed in — click "Sign in with Microsoft" first.');
+  try{
+    const result = await msalInstance.acquireTokenSilent({ scopes: ['Files.ReadWrite'], account });
+    return result.accessToken;
+  }catch(err){
+    const result = await msalInstance.acquireTokenPopup({ scopes: ['Files.ReadWrite'] });
+    return result.accessToken;
+  }
+}
+
+async function syncToOneDrive(){
+  const entries = getLog();
+  if(entries.length === 0){
+    setOnedriveStatus('No entries to sync yet.', 'var(--amber)');
+    return;
+  }
+  const config = JSON.parse(localStorage.getItem('cw_azure_config') || '{}');
+  if(!config.clientId){
+    setOnedriveStatus('Save your Azure settings first.', 'var(--red)');
+    return;
+  }
+  const filePath = config.filePath || '/CW_Dosing_Live_Log.xlsx';
+  setOnedriveStatus('Syncing…', 'var(--muted)');
+  try{
+    const token = await getGraphToken();
+    const aoa = [LOG_HEADERS, LOG_UNITS, ...entries];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = LOG_HEADERS.map(() => ({wch: 15}));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily_Log_Template');
+    const arrayBuffer = XLSX.write(wb, {type: 'array', bookType: 'xlsx'});
+
+    const cleanPath = filePath.startsWith('/') ? filePath : '/' + filePath;
+    const url = `https://graph.microsoft.com/v1.0/me/drive/root:${encodeURI(cleanPath)}:/content`;
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: arrayBuffer
+    });
+    if(!resp.ok){
+      const errText = await resp.text();
+      throw new Error(`Graph API error ${resp.status}: ${errText}`);
+    }
+    setOnedriveStatus(`Synced ${entries.length} row(s) to OneDrive at ${new Date().toLocaleTimeString()}.`, 'var(--teal)');
+  }catch(err){
+    setOnedriveStatus('Sync failed: ' + (err.message || err), 'var(--red)');
+  }
+}
+
+loadAzureConfig();
+
+// ================= GOOGLE SHEETS BACKUP (GIS + Sheets API only — no Drive scope) =================
+let gsTokenClient = null;
+let gsAccessToken = null;
+
+function loadGoogleConfig(){
+  const saved = JSON.parse(localStorage.getItem('cw_google_config') || '{}');
+  if(saved.clientId) document.getElementById('gs_client_id').value = saved.clientId;
+  if(saved.spreadsheetId) document.getElementById('gs_spreadsheet_id').value = saved.spreadsheetId;
+  if(saved.folderId) document.getElementById('gs_folder_id').value = saved.folderId;
+  if(saved.spreadsheetId) showGsheetLinks(saved.spreadsheetId, saved.folderId);
+  if(saved.clientId) initGoogleClient(saved);
+  return saved;
+}
+
+function saveGoogleConfig(){
+  const config = {
+    clientId: document.getElementById('gs_client_id').value.trim(),
+    spreadsheetId: document.getElementById('gs_spreadsheet_id').value.trim(),
+    folderId: document.getElementById('gs_folder_id').value.trim()
+  };
+  if(!config.clientId){
+    setGsheetStatus('Enter your Google Cloud OAuth Client ID first.', 'var(--red)');
+    return;
+  }
+  localStorage.setItem('cw_google_config', JSON.stringify(config));
+  initGoogleClient(config);
+  showGsheetLinks(config.spreadsheetId, config.folderId);
+  setGsheetStatus('Settings saved. Click "Sign in with Google" to connect.', 'var(--teal)');
+}
+
+function initGoogleClient(config){
+  if(typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2){
+    setGsheetStatus('Google sign-in library did not load — check your network/ad-blocker and reload.', 'var(--red)');
+    return;
+  }
+  gsTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: config.clientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback: '' // set per-request below
+  });
+}
+
+function setGsheetStatus(text, color){
+  const el = document.getElementById('gsheet-status');
+  el.textContent = text;
+  el.style.color = color || 'var(--muted)';
+}
+
+function showGsheetLinks(spreadsheetId, folderId){
+  const wrap = document.getElementById('gsheet-link-wrap');
+  const link = document.getElementById('gsheet-link');
+  const folderLink = document.getElementById('gsheet-folder-link');
+  if(!spreadsheetId){ wrap.style.display = 'none'; return; }
+  link.href = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+  if(folderId){
+    folderLink.href = `https://drive.google.com/drive/folders/${folderId}`;
+    folderLink.style.display = 'inline';
+  } else {
+    folderLink.style.display = 'none';
+  }
+  wrap.style.display = 'block';
+}
+
+function signInGoogle(){
+  const config = JSON.parse(localStorage.getItem('cw_google_config') || '{}');
+  if(!config.clientId){
+    setGsheetStatus('Save your Google Cloud settings first.', 'var(--red)');
+    return;
+  }
+  if(!gsTokenClient) initGoogleClient(config);
+  if(!gsTokenClient) return;
+  gsTokenClient.callback = (resp) => {
+    if(resp.error){
+      setGsheetStatus('Sign-in failed: ' + resp.error, 'var(--red)');
+      return;
+    }
+    gsAccessToken = resp.access_token;
+    setGsheetStatus('Signed in with Google.', 'var(--teal)');
+  };
+  gsTokenClient.requestAccessToken({ prompt: gsAccessToken ? '' : 'consent' });
+}
+
+function signOutGoogle(){
+  if(gsAccessToken && typeof google !== 'undefined' && google.accounts && google.accounts.oauth2){
+    google.accounts.oauth2.revoke(gsAccessToken, () => {});
+  }
+  gsAccessToken = null;
+  setGsheetStatus('Not signed in.', 'var(--muted)');
+}
+
+function getGoogleToken(){
+  return new Promise((resolve, reject) => {
+    const config = JSON.parse(localStorage.getItem('cw_google_config') || '{}');
+    if(!config.clientId){ reject(new Error('Save your Google Cloud settings first.')); return; }
+    if(!gsTokenClient) initGoogleClient(config);
+    if(!gsTokenClient){ reject(new Error('Google sign-in library not ready.')); return; }
+    if(gsAccessToken){ resolve(gsAccessToken); return; }
+    gsTokenClient.callback = (resp) => {
+      if(resp.error){ reject(new Error(resp.error)); return; }
+      gsAccessToken = resp.access_token;
+      resolve(gsAccessToken);
+    };
+    gsTokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+}
+
+async function getFirstSheetTitle(token, spreadsheetId){
+  const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  if(!resp.ok) throw new Error(`Could not read spreadsheet (${resp.status}): ${await resp.text()}`);
+  const data = await resp.json();
+  return data.sheets[0].properties.title;
+}
+
+async function syncToGoogleSheets(){
+  const entries = getLog();
+  if(entries.length === 0){
+    setGsheetStatus('No entries to sync yet.', 'var(--amber)');
+    return;
+  }
+  const config = JSON.parse(localStorage.getItem('cw_google_config') || '{}');
+  if(!config.clientId){
+    setGsheetStatus('Save your Google Cloud settings first.', 'var(--red)');
+    return;
+  }
+  if(!config.spreadsheetId){
+    setGsheetStatus('Enter your Spreadsheet ID first (from the sheet\'s URL).', 'var(--red)');
+    return;
+  }
+  setGsheetStatus('Syncing…', 'var(--muted)');
+  try{
+    const token = await getGoogleToken();
+    const spreadsheetId = config.spreadsheetId;
+    const tabTitle = await getFirstSheetTitle(token, spreadsheetId);
+    const range = `'${tabTitle}'!A1:ZZ`;
+
+    const aoa = [LOG_HEADERS, LOG_UNITS, ...entries];
+    // Clear existing content first so a shrinking log doesn't leave stale rows behind
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:clear`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const updateRange = `'${tabTitle}'!A1`;
+    const updateResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=RAW`, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: aoa })
+    });
+    if(!updateResp.ok) throw new Error(`Sheets API error ${updateResp.status}: ${await updateResp.text()}`);
+
+    showGsheetLinks(spreadsheetId, config.folderId);
+    setGsheetStatus(`Synced ${entries.length} row(s) to Google Sheets at ${new Date().toLocaleTimeString()}.`, 'var(--teal)');
+  }catch(err){
+    setGsheetStatus('Sync failed: ' + (err.message || err), 'var(--red)');
+  }
+}
+
+loadGoogleConfig();
 </script>
 </body>
 </html>
