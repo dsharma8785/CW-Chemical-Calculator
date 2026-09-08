@@ -181,9 +181,9 @@
               <input type="number" id="m_alk" value="380"></div>
             <div class="field"><label>CW P-Alkalinity <span class="unit">logged only</span></label>
               <input type="number" id="p_alk" value="0"></div>
-            <div class="field"><label>Free Cl₂ measured <span class="unit">ppm</span></label>
+            <div class="field"><label>Free Cl₂ measured <span class="unit">ppm — drives NaOCl dose</span></label>
               <input type="number" step="0.01" id="free_cl2_meas" value="0.40"></div>
-            <div class="field"><label>ClO₂ measured <span class="unit">ppm</span></label>
+            <div class="field"><label>ClO₂ measured <span class="unit">ppm — drives ClO₂ dose</span></label>
               <input type="number" step="0.01" id="clo2_meas" value="0.15"></div>
             <div class="field"><label>ORP <span class="unit">mV, logged only</span></label>
               <input type="number" id="orp" value="420"></div>
@@ -264,11 +264,11 @@
                 <input type="number" step="0.01" id="ratio_naclo2" value="6.02"></div>
               <div class="field"><label>NaClO₂:HCl ratio <span class="unit">kg/kg @90%</span></label>
                 <input type="number" step="0.01" id="ratio_hcl" value="6.0"></div>
-              <div class="field"><label>ClO₂ dose conc. <span class="unit">ppm</span></label>
+              <div class="field"><label>ClO₂ target residual <span class="unit">ppm</span></label>
                 <input type="number" step="0.01" id="clo2_dose_conc" value="0.5"></div>
-              <div class="field flagged"><label>NaOCl dose conc. <span class="unit">ppm</span></label>
+              <div class="field flagged"><label>NaOCl target residual <span class="unit">ppm</span></label>
                 <input type="number" step="0.01" id="naocl_dose_conc" value="0.5"></div>
-              <div class="flag-note">PLACEHOLDER — assumed equal to NETRA's residual target; the full-NaOCl-alone dose concentration has no documented source yet.</div>
+              <div class="flag-note">PLACEHOLDER — assumed equal to NETRA's residual target; the full-NaOCl-alone target has no documented source yet. Dose = target minus today's measured residual (floored at zero).</div>
               <div class="field"><label>NaOCl density <span class="unit">kg/L</span></label>
                 <input type="number" step="0.01" id="naocl_density" value="1.20"></div>
               <div class="field"><label>NaOCl free NaOH <span class="unit">g/L</span></label>
@@ -392,6 +392,7 @@
   <details class="notes">
     <summary>Notes on this model</summary>
     <ul class="readme">
+      <li>Dosing is deficit-based: today's ClO₂/NaOCl doses are sized to (target residual − today's measured residual), floored at zero — not a blind full shock dose regardless of what's already in the system. Measuring a residual already at/above target means zero additional dose of that chemical today.</li>
       <li>Default (no chemical flagged): cost decides. Since cost scales linearly with ClO₂ usage, the cheapest choice is always one of two extremes — max ClO₂ (today's mechanical generator ceiling) or 0% ClO₂ (full NaOCl) — the model compares both and picks the cheaper.</li>
       <li>Flagging a chemical short-supply switches to conservation mode: NaClO₂/HCl scarce throttles ClO₂ production down to whatever level makes that stock last <b>exactly until the next delivery</b> (using as much ClO₂ as sustainably possible). NaOCl/H₂SO₄ scarce forces ClO₂ up to the full mechanical ceiling to minimize NaOCl use. Both overrides apply irrespective of cost.</li>
       <li class="amber-text">Flagged fields (amber) are placeholder assumptions pending real site/trial data.</li>
@@ -464,8 +465,12 @@ function recalc(){
     return alk_add*0.98;
   }
 
-  const full_clo2 = holdup_vol * clo2_dose_conc / 1000 * doses_per_day;
-  const full_naocl = holdup_vol * naocl_dose_conc / 1000 * doses_per_day;
+  // Dose to the DEFICIT vs. today's measured residual, not a blind full shock dose every time —
+  // if residual is already at/above target, no more of that chemical is needed today.
+  const clo2_deficit = Math.max(clo2_dose_conc - num('clo2_meas'), 0);
+  const free_cl2_deficit = Math.max(naocl_dose_conc - num('free_cl2_meas'), 0);
+  const full_clo2 = holdup_vol * clo2_deficit / 1000 * doses_per_day;
+  const full_naocl = holdup_vol * free_cl2_deficit / 1000 * doses_per_day;
 
   const naclo2_100 = eff>0 ? full_clo2*ratio_naclo2*(0.9/eff) : 0;
   const hcl_100 = eff>0 ? full_clo2*ratio_hcl*(0.9/eff) : 0;
