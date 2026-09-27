@@ -615,6 +615,42 @@
         </table>
       </div>
 
+<!--
+  PASTE 1 of 2 — HTML markup.
+  Paste this as a new <div class="panel"> inside the results column (results-col),
+  anywhere after the existing panels — e.g. right before the closing </div> of
+  results-col, or right after your "Stock runway" panel.
+-->
+<div class="panel" id="ai-panel">
+  <h2><span class="dot" style="background:var(--teal)"></span>Calibration &amp; 7-Day Forward Plan</h2>
+
+  <div class="field">
+    <label>Apps Script Web App URL</label>
+    <input type="text" id="apps_script_url" placeholder="https://script.google.com/macros/s/XXXXX/exec">
+  </div>
+  <div class="btn-row">
+    <button class="btn secondary" id="fetch_calibration_btn">Fetch latest calibration</button>
+  </div>
+  <div id="calibration_status" class="note-line"></div>
+
+  <div class="btn-row" style="margin-top:14px">
+    <button class="btn" id="run_7day_btn">Compute 7-day plan</button>
+  </div>
+  <table class="blend-table" style="margin-top:10px">
+    <thead><tr><th>Day</th><th>Regime</th><th>NaClO2</th><th>HCl</th><th>NaOCl</th><th>H2SO4</th><th>₹/day</th></tr></thead>
+    <tbody id="sevenday_body"></tbody>
+  </table>
+  <div class="note-line">Assumes today's water chemistry, prices, and generator availability hold steady for
+    the week (no forecast of how they'll change) and that no resupply arrives during the 7 days — re-run daily
+    for a rolling plan rather than treating this as a one-time forecast.</div>
+
+  <div class="btn-row" style="margin-top:14px">
+    <button class="btn secondary" id="ai_narrative_btn">Get AI briefing on this plan</button>
+  </div>
+  <div id="ai_narrative_output" class="note-line" style="margin-top:8px;white-space:pre-wrap;"></div>
+</div>
+
+
     </div>
   </div>
 
@@ -1361,6 +1397,182 @@ async function syncToGoogleSheets(){
 }
 
 loadGoogleConfig();
+// =============================================================================
+// PASTE 2 of 2 — JavaScript.
+// Paste this inside your existing script block, anywhere AFTER the recalc()
+// function definition and AFTER `recalc();` is first called, e.g. right before
+// the closing script tag at the end of the page.
+// =============================================================================
+
+// ---- 7-day forward simulation (deterministic — reuses the same engine as
+// recalc(), just iterated across 7 days with stock/days-to-supply carried
+// forward). Holds today's water chemistry, prices, and availability flat. ----
+function runSevenDayPlan() {
+  const eff = num('eff_clo2') / 100;
+  const holdup_vol = num('holdup_vol'), doses_per_day = num('doses_per_day');
+  const clo2_dose_conc = num('clo2_dose_conc'), naocl_dose_conc = num('naocl_dose_conc');
+  const ratio_naclo2 = num('ratio_naclo2'), ratio_hcl = num('ratio_hcl');
+  const naocl_density = num('naocl_density');
+  const naocl_naoh = num('naocl_naoh'), naocl_na2co3 = num('naocl_na2co3');
+  const h2so4_strength = num('h2so4_strength') / 100;
+  const price_naclo2 = num('price_naclo2'), price_hcl = num('price_hcl');
+  const price_naocl = num('price_naocl'), price_h2so4 = num('price_h2so4');
+  const avail_mech = num('clo2_avail') / 100;
+  const scarce = document.getElementById('scarce_chem').value;
+
+  const clo2_deficit = Math.max(clo2_dose_conc - num('clo2_meas'), 0);
+  const free_cl2_deficit = Math.max(naocl_dose_conc - num('free_cl2_meas'), 0);
+  const full_clo2 = holdup_vol * clo2_deficit / 1000 * doses_per_day;
+  const full_naocl_fixed = holdup_vol * free_cl2_deficit / 1000 * doses_per_day;
+
+  const cw_ph = num('cw_ph'), ph_upper = num('ph_upper');
+  const mu_alk = num('mu_alk'), mu_ph_anchor = num('mu_ph_anchor');
+  const cw_alk_anchor = num('cw_alk_anchor'), cw_ph_anchor = num('cw_ph_anchor');
+  const h2so4_coef = num('h2so4_coef');
+  const bd_hr = num('bd_flow') / 24;
+  const slope = (cw_ph_anchor - mu_ph_anchor) !== 0 ? (cw_alk_anchor - mu_alk) / (cw_ph_anchor - mu_ph_anchor) : 0;
+  const target_alk_at_upper = mu_alk + slope * (ph_upper - mu_ph_anchor);
+  const alk_gap_measured = Math.max(num('m_alk') - target_alk_at_upper, 0);
+  const alk_gap_ph = slope * Math.max(cw_ph - ph_upper, 0);
+  const alk_gap = Math.max(alk_gap_measured, alk_gap_ph);
+  const acidNeeded = cw_ph > ph_upper;
+  const h2so4_base = acidNeeded ? h2so4_coef * alk_gap * bd_hr : 0;
+
+  function causticityLocal(naocl_kg) {
+    const vol = naocl_kg / naocl_density;
+    const naoh = vol * naocl_naoh / 1000;
+    const na2co3 = vol * naocl_na2co3 / 1000;
+    return (naoh * 1.25 + na2co3 * 0.943) * 0.98;
+  }
+  function blendAt(avail) {
+    const clo2_dosed = full_clo2 * avail;
+    const naclo2_kg = eff > 0 ? clo2_dosed * ratio_naclo2 * (0.9 / eff) : 0;
+    const hcl_kg = eff > 0 ? clo2_dosed * ratio_hcl * (0.9 / eff) : 0;
+    const naocl_kg = full_naocl_fixed * (1 - avail);
+    const h2so4_comm = h2so4_strength > 0 ? (h2so4_base + causticityLocal(naocl_kg)) / h2so4_strength : 0;
+    const total = naclo2_kg * price_naclo2 / 1000 + hcl_kg * price_hcl / 1000 +
+                  naocl_kg * price_naocl / 1000 + h2so4_comm * price_h2so4 / 1000;
+    return { naclo2_kg, hcl_kg, naocl_kg, h2so4_comm, total };
+  }
+
+  let stock = {
+    NaClO2: num('stock_naclo2'), HCl: num('stock_hcl'),
+    NaOCl: num('stock_naocl'), H2SO4: num('stock_h2so4')
+  };
+  let daysSupply = {
+    NaClO2: num('days_naclo2'), HCl: num('days_hcl'),
+    NaOCl: num('days_naocl'), H2SO4: num('days_h2so4')
+  };
+
+  const naclo2_100 = eff > 0 ? full_clo2 * ratio_naclo2 * (0.9 / eff) : 0;
+  const hcl_100 = eff > 0 ? full_clo2 * ratio_hcl * (0.9 / eff) : 0;
+
+  const plan = [];
+  for (let day = 1; day <= 7; day++) {
+    const avail_cap_naclo2 = (scarce === 'NaClO2')
+      ? Math.min(1, stock.NaClO2 / Math.max(naclo2_100 * daysSupply.NaClO2, 0.001)) : 1;
+    const avail_cap_hcl = (scarce === 'HCl')
+      ? Math.min(1, stock.HCl / Math.max(hcl_100 * daysSupply.HCl, 0.001)) : 1;
+
+    const atMech = blendAt(avail_mech);
+    const atZero = blendAt(0);
+    let avail_eff, mode;
+    if (scarce === 'NaClO2' || scarce === 'HCl') {
+      avail_eff = Math.min(avail_mech, avail_cap_naclo2, avail_cap_hcl);
+      mode = 'conserve';
+    } else if (scarce === 'NaOCl' || scarce === 'H2SO4') {
+      avail_eff = avail_mech;
+      mode = 'conserve';
+    } else {
+      avail_eff = (atMech.total <= atZero.total) ? avail_mech : 0;
+      mode = 'cost';
+    }
+    const todayBlend = blendAt(avail_eff);
+    const regime = avail_eff >= 0.999 ? 'A (ClO2)' : (avail_eff <= 0.001 ? 'C (NaOCl)' : 'B (blend)');
+
+    plan.push({
+      day, regime, mode,
+      naclo2_kg: todayBlend.naclo2_kg, hcl_kg: todayBlend.hcl_kg,
+      naocl_kg: todayBlend.naocl_kg, h2so4_kg: todayBlend.h2so4_comm,
+      cost: todayBlend.total,
+      stock_before: Object.assign({}, stock)
+    });
+
+    stock.NaClO2 = Math.max(stock.NaClO2 - todayBlend.naclo2_kg, 0);
+    stock.HCl = Math.max(stock.HCl - todayBlend.hcl_kg, 0);
+    stock.NaOCl = Math.max(stock.NaOCl - todayBlend.naocl_kg, 0);
+    stock.H2SO4 = Math.max(stock.H2SO4 - todayBlend.h2so4_comm, 0);
+    daysSupply.NaClO2 = Math.max(daysSupply.NaClO2 - 1, 0.001);
+    daysSupply.HCl = Math.max(daysSupply.HCl - 1, 0.001);
+    daysSupply.NaOCl = Math.max(daysSupply.NaOCl - 1, 0.001);
+    daysSupply.H2SO4 = Math.max(daysSupply.H2SO4 - 1, 0.001);
+  }
+  return plan;
+}
+
+function renderSevenDayPlan(plan) {
+  document.getElementById('sevenday_body').innerHTML = plan.map(p => `
+    <tr><td>Day ${p.day}</td><td>${p.regime}</td><td>${fmt(p.naclo2_kg,0)}</td><td>${fmt(p.hcl_kg,0)}</td>
+    <td>${fmt(p.naocl_kg,0)}</td><td>${fmt(p.h2so4_kg,1)}</td><td>₹${fmt(p.cost)}</td></tr>
+  `).join('');
+}
+
+document.getElementById('run_7day_btn').addEventListener('click', () => {
+  const plan = runSevenDayPlan();
+  renderSevenDayPlan(plan);
+  window._lastSevenDayPlan = plan;
+});
+
+// ---- Fetch calibration from the Apps Script backend and apply it to Config ----
+document.getElementById('fetch_calibration_btn').addEventListener('click', async () => {
+  const url = document.getElementById('apps_script_url').value.trim();
+  const statusEl = document.getElementById('calibration_status');
+  if (!url) { statusEl.textContent = 'Enter your Apps Script Web App URL first.'; return; }
+  statusEl.textContent = 'Fetching...';
+  try {
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json.error) { statusEl.textContent = 'Error: ' + json.error; return; }
+    const cal = json.calibration;
+    const applied = [];
+    const ratioEntry = cal['NaClO2:ClO2 ratio (kg/kg)'];
+    if (ratioEntry && ratioEntry.value !== 'not enough data yet') {
+      document.getElementById('ratio_naclo2').value = ratioEntry.value;
+      applied.push('NaClO2:ClO2 ratio = ' + ratioEntry.value + ' (n=' + ratioEntry.n + ', ' + ratioEntry.confidence + ')');
+    }
+    const effEntry = cal['ClO2 generator efficiency (%)'];
+    if (effEntry && effEntry.value !== 'not enough data yet') {
+      document.getElementById('eff_clo2').value = effEntry.value;
+      applied.push('Efficiency = ' + effEntry.value + '% (n=' + effEntry.n + ', ' + effEntry.confidence + ')');
+    }
+    statusEl.textContent = applied.length
+      ? ('Applied: ' + applied.join(' · '))
+      : 'Fetched, but not enough logged data yet to override any placeholder.';
+    recalc();
+  } catch (err) {
+    statusEl.textContent = 'Fetch failed: ' + err.message + ' (check the URL and that the Apps Script is deployed with "Anyone" access).';
+  }
+});
+
+// ---- Ask the AI (via the Apps Script proxy) to narrate the 7-day plan ----
+document.getElementById('ai_narrative_btn').addEventListener('click', async () => {
+  const url = document.getElementById('apps_script_url').value.trim();
+  const outEl = document.getElementById('ai_narrative_output');
+  if (!url) { outEl.textContent = 'Enter your Apps Script Web App URL first.'; return; }
+  if (!window._lastSevenDayPlan) { outEl.textContent = 'Click "Compute 7-day plan" first.'; return; }
+  outEl.textContent = 'Asking the model...';
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'narrate', plan: window._lastSevenDayPlan })
+    });
+    const json = await resp.json();
+    outEl.textContent = json.narrative || ('Error: ' + (json.error || 'no response'));
+  } catch (err) {
+    outEl.textContent = 'Request failed: ' + err.message;
+  }
+});
+
 </script>
 </body>
 </html>
