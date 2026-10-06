@@ -35,16 +35,10 @@ summary{padding:10px 14px;cursor:pointer;font-weight:600;font-size:15px}summary 
 .mu{color:var(--mute);font-size:12px}#sync{position:fixed;right:16px;bottom:12px;font-size:12px;color:var(--mute)}
 </style></head><body>
 <header><h1>CW Data Ledger <small id="stn"></small></h1>
-<nav><button class="on" data-p="ledger">Data Ledger</button><button data-p="entry">New / Edit Entry</button><button data-p="pred">Dosing Prediction</button></nav></header>
+<nav><button class="on" data-p="ledger">Data Ledger</button><button data-p="pred">Dosing Prediction</button></nav></header>
 <main>
-<section class="pane on" id="ledger"><div class="card">
- <div class="bar"><div><label>From</label><input type="date" id="f1"></div><div><label>To</label><input type="date" id="f2"></div>
- <div><label>Show group</label><select id="fg"></select></div>
- <button class="b g" id="clr">Clear</button><button class="b" id="newb">+ New entry</button><button class="b g" id="csv">Export CSV</button><span class="mu" id="cnt"></span></div>
- <div class="tw"><table id="tbl"></table></div><p class="mu">Click any row to open it for editing. Rows are keyed by date + shift; edits need the entry password.</p></div></section>
-
-<section class="pane" id="entry"><form id="form" autocomplete="off">
- <div class="card"><h2 style="margin:0 0 8px" id="etitle">New entry</h2>
+<section class="pane on" id="ledger"><form id="form" autocomplete="off">
+ <div class="card"><h2 style="margin:0 0 8px" id="etitle">New entry</h2><p class="mu" style="margin:0 0 8px">Fill the form below to log into the ledger; saved entries appear in the table underneath.</p>
  <div class="bar"><div><label>Date *</label><input type="date" id="date" required></div>
  <div><label>Shift *</label><select id="shift"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
  <div style="flex:1;min-width:180px"><label>Completeness (Shift + Daily fields)</label><div class="prog"><i id="pg" style="width:0"></i></div><span class="mu" id="pgt"></span></div>
@@ -54,7 +48,13 @@ summary{padding:10px 14px;cursor:pointer;font-weight:600;font-size:15px}summary 
  <div class="bar" style="margin-top:10px"><label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="ack" style="width:auto"> I have re-checked the amber-flagged values against the lab sheet</label>
  <div><label>Entry password</label><input type="password" id="pwd" style="width:160px"></div>
  <button class="b" id="save">Save to ledger</button><button type="button" class="b g" id="reset">Clear form</button><button type="button" class="b r" id="del" style="display:none">Delete entry</button></div></div>
-</form></section>
+</form><div class="card">
+ <div class="bar"><div><label>From</label><input type="date" id="f1"></div><div><label>To</label><input type="date" id="f2"></div>
+ <div><label>Show group</label><select id="fg"></select></div>
+ <button class="b g" id="clr">Clear</button><button class="b" id="newb">+ New entry</button><button class="b g" id="csv">Export CSV</button><span class="mu" id="cnt"></span></div>
+ <div class="tw"><table id="tbl"></table></div><p class="mu">Click any row to open it for editing. Rows are keyed by date + shift; edits need the entry password.</p></div></section>
+
+
 
 <section class="pane" id="pred">
  <div class="card"><h2 style="margin:0 0 4px">Dosing prediction — derived from the ledger</h2>
@@ -71,6 +71,8 @@ summary{padding:10px 14px;cursor:pointer;font-weight:600;font-size:15px}summary 
 const $=s=>document.querySelector(s);let S=[],F=[],E=[],cur=null,gas=typeof google!=='undefined'&&google.script;
 const run=(fn,...a)=>new Promise((ok,no)=>gas?google.script.run.withSuccessHandler(ok).withFailureHandler(no)[fn](...a):no(new Error('Open this page through the Apps Script web app URL')));
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.p));
+function focusForm(){$('#form').scrollIntoView({behavior:'smooth'})}
+function tblView(){$('#tbl').scrollIntoView({behavior:'smooth'})}
 function show(p){document.querySelectorAll('nav button,.pane').forEach(e=>e.classList.remove('on'));$('nav [data-p='+p+']').classList.add('on');$('#'+p).classList.add('on');if(p==='pred')pred()}
 const sync=t=>$('#sync').textContent=t||'';
 run('getBoot').then(d=>{S=d.schema;F=S.flatMap(g=>g.f);E=d.entries;$('#stn').textContent=d.station;build();ledger();dates()}).catch(e=>sync(e.message));
@@ -78,7 +80,7 @@ run('getBoot').then(d=>{S=d.schema;F=S.flatMap(g=>g.f);E=d.entries;$('#stn').tex
 /* ---------- ledger ---------- */
 $('#fg').innerHTML='<option value="">All groups</option>';
 ['f1','f2','fg'].forEach(i=>$('#'+i).onchange=ledger);$('#clr').onclick=()=>{$('#f1').value=$('#f2').value='';$('#fg').value='';ledger()};
-$('#newb').onclick=()=>{resetForm();show('entry')};
+$('#newb').onclick=()=>{resetForm();focusForm()};
 function ledger(){
  if(!$('#fg').dataset.ok&&S.length){S.forEach((g,i)=>$('#fg').insertAdjacentHTML('beforeend',`<option value="${i}">${g.g}</option>`));$('#fg').dataset.ok=1}
  const gi=$('#fg').value,G=S.map((g,i)=>({g,i})).filter(x=>gi===''||+gi===x.i);
@@ -122,7 +124,7 @@ function collect(){const o={date:$('#date').value,shift:$('#shift').value};F.for
 function resetForm(){$('#form').reset();cur=null;$('#etitle').textContent='New entry';$('#del').style.display='none';$('#date').value=new Date().toISOString().slice(0,10);$('#pwd').value='';check()}
 $('#reset').onclick=resetForm;
 function load(r){resetForm();cur=r;$('#date').value=r.date;$('#shift').value=r.shift;F.forEach(f=>{$('#'+f.id).value=r[f.id]??''});
- $('#etitle').textContent=`Editing ${r.date} · shift ${r.shift}`;$('#del').style.display='';check();show('entry')}
+ $('#etitle').textContent=`Editing ${r.date} · shift ${r.shift}`;$('#del').style.display='';check();focusForm()}
 $('#carry').onclick=()=>{const d=$('#date').value,s=+$('#shift').value;const p=E.find(r=>r.date===d&&+r.shift===s-1)||E.find(r=>r.date<d||(r.date===d&&+r.shift<s));
  if(!p)return sync('No earlier entry to copy');F.filter(f=>!f.calc&&!f.text&&['Shift'].includes(f.fr)).forEach(f=>$('#'+f.id).value=p[f.id]??'');calc();check();sync('Copied shift-level values from '+p.date+' shift '+p.shift+' — review before saving')};
 $('#form').onsubmit=async e=>{e.preventDefault();check();
@@ -131,9 +133,9 @@ $('#form').onsubmit=async e=>{e.preventDefault();check();
  try{sync('Saving…');let r=await run('saveEntry',collect(),$('#pwd').value,!!cur);
   if(r.status==='exists'){if(!confirm(`An entry for ${$('#date').value} shift ${$('#shift').value} already exists. Overwrite it?`))return sync('Cancelled');r=await run('saveEntry',collect(),$('#pwd').value,true)}
   if(r.status==='denied')return sync('Wrong password');if(r.status!=='saved')return sync(r.msg||'Not saved');
-  E=r.entries;ledger();dates();sync('Saved ✔');$('#ack').checked=false;resetForm();show('ledger')}catch(x){sync(x.message)}};
+  E=r.entries;ledger();dates();sync('Saved ✔');$('#ack').checked=false;resetForm();tblView()}catch(x){sync(x.message)}};
 $('#del').onclick=async()=>{if(!cur||!confirm('Delete this entry permanently?'))return;try{const r=await run('deleteEntry',cur.date,cur.shift,$('#pwd').value);
- if(r.status!=='deleted')return sync('Wrong password');E=r.entries;ledger();dates();resetForm();show('ledger');sync('Deleted')}catch(x){sync(x.message)}};
+ if(r.status!=='deleted')return sync('Wrong password');E=r.entries;ledger();dates();resetForm();tblView();sync('Deleted')}catch(x){sync(x.message)}};
 
 /* ---------- dosing prediction (derived from ledger) ---------- */
 function dates(){const d=[...new Set(E.map(r=>r.date))];$('#pd').innerHTML=d.map(x=>`<option>${x}</option>`).join('')}
